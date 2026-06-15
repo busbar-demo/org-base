@@ -1,0 +1,63 @@
+name: Audit Permissions
+
+# Cedar-based security analysis of the org's metadata — permissions, sharing,
+# FLS, and flows. Self-contained: retrieves a fresh metadata tree (without
+# committing it), then audits it locally. Read-only; OIDC self-mint.
+#
+# Findings are published to the Security tab (SARIF / Code Scanning) and uploaded
+# as a workflow artifact. Non-blocking by default — it reports, it doesn't gate.
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_instance:
+        description: 'Busbar-equipped org instance URL (overrides the SF_INSTANCE_URL repo variable).'
+        required: false
+        default: ''
+      severity_threshold:
+        description: 'Minimum severity to report (info | low | medium | high | critical).'
+        required: false
+        default: 'medium'
+      fail_on_severity:
+        description: 'Fail the run at/above this severity, or "never" to only report.'
+        required: false
+        default: 'never'
+
+permissions:
+  contents: read           # this workflow does not commit
+  id-token: write          # OIDC token exchange
+  security-events: write   # upload SARIF to the Security tab
+
+concurrency:
+  group: audit-permissions
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    name: Audit org permissions
+    runs-on: ubuntu-latest
+    env:
+      METADATA_PATH: org/metadata
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Retrieve metadata (no commit)
+        uses: busbar-actions/sf-metadata-retrieve@main
+        with:
+          target-instance: ${{ github.event.inputs.target_instance || vars.SF_INSTANCE_URL }}
+          types: 'CustomObject,PermissionSet,PermissionSetGroup,Profile,Flow,SharingRules'
+          target: ${{ env.METADATA_PATH }}
+          commit: false
+
+      - name: Run permissions audit
+        uses: busbar-actions/sf-permissions-audit@main
+        with:
+          metadata-path: ${{ env.METADATA_PATH }}
+          severity-threshold: ${{ github.event.inputs.severity_threshold }}
+          fail-on-severity: ${{ github.event.inputs.fail_on_severity }}
+          report-path: .busbar/security/findings.json
+          sarif: true
+          upload-sarif: true
+          upload-artifact: true
+          artifact-name: org-security-findings

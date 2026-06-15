@@ -1,0 +1,6 @@
+# OS / editor noise — the context this repo collects under .busbar/ and
+# org/metadata/ is intentionally committed, so it is NOT ignored.
+.DS_Store
+Thumbs.db
+*.log
+node_modules/

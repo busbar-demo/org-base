@@ -1,0 +1,54 @@
+name: Analyze Dependencies
+
+# Build a component dependency graph (JSON) and a Voronoi package map (SVG)
+# from the org's metadata. Self-contained: retrieves a fresh metadata tree
+# (without committing it), then analyzes it locally. Read-only; OIDC self-mint.
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_instance:
+        description: 'Busbar-equipped org instance URL (overrides the SF_INSTANCE_URL repo variable).'
+        required: false
+        default: ''
+      types:
+        description: 'Comma-separated metadata types to analyze. Blank = a curated default set.'
+        required: false
+        default: ''
+
+permissions:
+  contents: write   # commit the generated graph artifacts
+  id-token: write   # OIDC token exchange
+
+concurrency:
+  group: analyze-dependencies
+  cancel-in-progress: false
+
+jobs:
+  analyze:
+    name: Analyze metadata dependencies
+    runs-on: ubuntu-latest
+    env:
+      METADATA_PATH: org/metadata
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Retrieve metadata (no commit)
+        uses: busbar-actions/sf-metadata-retrieve@main
+        with:
+          target-instance: ${{ github.event.inputs.target_instance || vars.SF_INSTANCE_URL }}
+          types: ${{ github.event.inputs.types || 'CustomObject,ApexClass,ApexTrigger,Flow,PermissionSet,PermissionSetGroup,CustomTab,FlexiPage,CustomApplication,LightningComponentBundle' }}
+          target: ${{ env.METADATA_PATH }}
+          commit: false
+
+      - name: Build dependency graph
+        uses: busbar-actions/sf-dependency-graph@main
+        with:
+          metadata-path: ${{ env.METADATA_PATH }}
+          output-dir: .busbar/dependency-graph
+          emit-svg: true
+          commit: true
+          commit-message: 'context: refresh dependency graph'
+          upload-artifact: true
+          artifact-name: dependency-graph

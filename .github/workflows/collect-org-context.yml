@@ -1,0 +1,84 @@
+name: Collect Org Context
+
+# The full read-only snapshot of your Salesforce org, committed back to this
+# repo as a diffable mirror: schema + metadata + dependency graph + a security
+# audit. Nothing here deploys to or changes the org. Auth is GitHub OIDC
+# self-mint (no stored Salesforce credentials).
+#
+# Run this first. The org instance URL comes from the repo variable
+# SF_INSTANCE_URL (set by the Busbar console when it forks this repo); override
+# it per-run with the target_instance input.
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_instance:
+        description: 'Busbar-equipped org instance URL (overrides the SF_INSTANCE_URL repo variable).'
+        required: false
+        default: ''
+      object_filters:
+        description: 'SObject capability filters for the schema dump (e.g. custom, or custom,standard). Blank = all.'
+        required: false
+        default: 'custom'
+      metadata_types:
+        description: 'Comma-separated metadata types to retrieve. Blank = a curated default set.'
+        required: false
+        default: ''
+
+permissions:
+  contents: write          # commit the collected context back to this repo
+  id-token: write          # OIDC token exchange against the Busbar-equipped org
+  security-events: write   # publish the permissions audit to the Security tab
+
+concurrency:
+  group: collect-org-context
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    name: Collect read-only org context
+    runs-on: ubuntu-latest
+    env:
+      TARGET_INSTANCE: ${{ github.event.inputs.target_instance || vars.SF_INSTANCE_URL }}
+      METADATA_PATH: org/metadata
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Snapshot org schema
+        uses: busbar-actions/sf-schema@main
+        with:
+          target-instance: ${{ env.TARGET_INSTANCE }}
+          filters: ${{ github.event.inputs.object_filters }}
+          output-path: .busbar/schema
+          commit: true
+          commit-message: 'context: refresh org schema'
+
+      - name: Retrieve org metadata
+        uses: busbar-actions/sf-metadata-retrieve@main
+        with:
+          target-instance: ${{ env.TARGET_INSTANCE }}
+          types: ${{ github.event.inputs.metadata_types || 'CustomObject,ApexClass,ApexTrigger,Flow,PermissionSet,PermissionSetGroup,CustomTab,FlexiPage,CustomApplication,LightningComponentBundle' }}
+          target: ${{ env.METADATA_PATH }}
+          commit: true
+          commit-message: 'context: refresh org metadata'
+
+      - name: Build dependency graph
+        uses: busbar-actions/sf-dependency-graph@main
+        with:
+          metadata-path: ${{ env.METADATA_PATH }}
+          output-dir: .busbar/dependency-graph
+          commit: true
+          commit-message: 'context: refresh dependency graph'
+
+      - name: Audit permissions (non-blocking)
+        uses: busbar-actions/sf-permissions-audit@main
+        with:
+          metadata-path: ${{ env.METADATA_PATH }}
+          severity-threshold: medium
+          fail-on-severity: never        # read-only context — never fail the snapshot
+          report-path: .busbar/security/findings.json
+          sarif: true
+          upload-sarif: false            # keep the snapshot self-contained; artifact only
+          upload-artifact: true
+          artifact-name: org-security-findings

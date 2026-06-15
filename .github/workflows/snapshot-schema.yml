@@ -1,0 +1,46 @@
+name: Snapshot Schema
+
+# Pull the org's schema as per-SObject REST describe JSON into .busbar/schema/
+# so schema drift surfaces as reviewable git diffs. Read-only; OIDC self-mint.
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_instance:
+        description: 'Busbar-equipped org instance URL (overrides the SF_INSTANCE_URL repo variable).'
+        required: false
+        default: ''
+      filters:
+        description: 'SObject capability filters (e.g. custom, or custom,standard). Blank = all.'
+        required: false
+        default: 'custom'
+      name_match:
+        description: 'Glob over SObject API names (e.g. Account*, *__c). Optional.'
+        required: false
+        default: ''
+
+permissions:
+  contents: write   # commit the refreshed schema
+  id-token: write   # OIDC token exchange
+
+concurrency:
+  group: snapshot-schema
+  cancel-in-progress: false
+
+jobs:
+  schema:
+    name: Snapshot org schema
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Snapshot org schema
+        uses: busbar-actions/sf-schema@main
+        with:
+          target-instance: ${{ github.event.inputs.target_instance || vars.SF_INSTANCE_URL }}
+          filters: ${{ github.event.inputs.filters }}
+          name-match: ${{ github.event.inputs.name_match }}
+          output-path: .busbar/schema
+          commit: true
+          commit-message: 'context: refresh org schema'

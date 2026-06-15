@@ -1,0 +1,59 @@
+name: Query Org
+
+# Run ONE declarative `sf` action against the org inside the nono capability
+# sandbox (Landlock-confined on Linux) with a full audit trail. Defaults to a
+# read-only SOQL query. Read-only; OIDC self-mint.
+#
+# The `action` input is an SfAction JSON document. Keep it read-only for this
+# sidecar (e.g. data_query); the sandbox tags every action with an inherent
+# risk level and confines the sf invocation accordingly.
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_instance:
+        description: 'Busbar-equipped org instance URL (overrides the SF_INSTANCE_URL repo variable).'
+        required: false
+        default: ''
+      soql:
+        description: 'SOQL to run (used when you leave the advanced action JSON blank).'
+        required: false
+        default: 'SELECT Id, Name FROM Organization'
+      action_json:
+        description: 'Advanced: a full SfAction JSON document. Overrides soql when set.'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+  id-token: write   # OIDC token exchange
+
+concurrency:
+  group: query-org
+  cancel-in-progress: false
+
+jobs:
+  query:
+    name: Query the org (sandboxed)
+    runs-on: ubuntu-latest   # Linux → Landlock enforcement
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run sandboxed sf action
+        uses: busbar-actions/sf-cli@main
+        with:
+          target-instance: ${{ github.event.inputs.target_instance || vars.SF_INSTANCE_URL }}
+          mode: enforce
+          action: >-
+            ${{ github.event.inputs.action_json
+              || format('{{"action":"data_query","soql":"{0}"}}', github.event.inputs.soql) }}
+          output: .busbar/query/result.json
+
+      - name: Upload query result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: org-query-result
+          path: .busbar/query/result.json
+          if-no-files-found: ignore

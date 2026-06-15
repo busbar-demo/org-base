@@ -1,0 +1,76 @@
+{
+  "schemaVersion": "2",
+  "type": "kit",
+  "module": {
+    "id": "org-base",
+    "name": "Org Base — Salesforce context sidecar",
+    "category": "context",
+    "icon": "database",
+    "blurb": "Read-only base sidecar: pulls org schema, metadata, a dependency graph, and a security audit into GitHub as reviewable history. Deploys nothing.",
+    "requires": ["sf-session"],
+    "provides": ["schema-context", "metadata-context", "dependency-graph", "security-context"]
+  },
+  "publisher": {
+    "id": "busbar/demo",
+    "name": "Busbar Demo",
+    "kind": "official"
+  },
+  "envelope": {
+    "permissions": {
+      "contents": "write",
+      "id-token": "write",
+      "security-events": "write"
+    },
+    "network": ["api.github.com", "*.salesforce.com", "*.my.salesforce.com"]
+  },
+  "workflows": [
+    {
+      "id": "collect-org-context",
+      "file": ".github/workflows/collect-org-context.yml",
+      "name": "Collect Org Context",
+      "blurb": "Full read-only snapshot: schema + metadata + dependency graph + permissions audit, committed back.",
+      "trigger": "workflow_dispatch",
+      "writesToOrg": false
+    },
+    {
+      "id": "snapshot-schema",
+      "file": ".github/workflows/snapshot-schema.yml",
+      "name": "Snapshot Schema",
+      "blurb": "Per-SObject describe JSON committed to .busbar/schema.",
+      "trigger": "workflow_dispatch",
+      "writesToOrg": false
+    },
+    {
+      "id": "retrieve-metadata",
+      "file": ".github/workflows/retrieve-metadata.yml",
+      "name": "Retrieve Metadata",
+      "blurb": "Source-format metadata tree committed to org/metadata.",
+      "trigger": "workflow_dispatch",
+      "writesToOrg": false
+    },
+    {
+      "id": "analyze-dependencies",
+      "file": ".github/workflows/analyze-dependencies.yml",
+      "name": "Analyze Dependencies",
+      "blurb": "Component dependency graph + package map (JSON + SVG).",
+      "trigger": "workflow_dispatch",
+      "writesToOrg": false
+    },
+    {
+      "id": "audit-permissions",
+      "file": ".github/workflows/audit-permissions.yml",
+      "name": "Audit Permissions",
+      "blurb": "Cedar security analysis to findings JSON + SARIF.",
+      "trigger": "workflow_dispatch",
+      "writesToOrg": false
+    },
+    {
+      "id": "query-org",
+      "file": ".github/workflows/query-org.yml",
+      "name": "Query Org",
+      "blurb": "One declarative sf action in the nono capability sandbox.",
+      "trigger": "workflow_dispatch",
+      "writesToOrg": false
+    }
+  ]
+}
