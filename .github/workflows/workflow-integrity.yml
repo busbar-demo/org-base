@@ -1,0 +1,73 @@
+name: Workflow Integrity
+
+# Parse every workflow in this repo into a Component Integrity Matrix with the
+# busbar-actions gh-workflow-parser and upload one integrity report per workflow.
+#
+# The Busbar-equipped org pulls these on the workflow_run COMPLETED webhook it
+# already receives: it downloads the named artifact, unzips it in-org, and
+# converges it onto WorkflowIntegrity__c (GithubIntegrityArtifactPullQueueable).
+# NO OIDC / no Salesforce credentials here — the org authenticates outbound as
+# its own GitHub App installation. (This is the artifact-PULL path; it does not
+# set target-instance, so the action only parses + uploads.)
+#
+# SALESFORCE-SIDE CONFIG (required for the pull to fire), on this repo's Repository__c:
+#   IntegrityWorkflowName__c = '.github/workflows/workflow-integrity.yml'
+#   IntegrityArtifactName__c = 'workflow-integrity-report'  (default; optional)
+# Artifact names are prefixed with that value so the pull prefix-matches one
+# WorkflowIntegrity__c per analyzed workflow (keyed by workflow_file_hash).
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: workflow-integrity
+  cancel-in-progress: false
+
+jobs:
+  discover:
+    name: Discover workflows
+    runs-on: ubuntu-latest
+    outputs:
+      files: ${{ steps.list.outputs.files }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - id: list
+        shell: bash
+        run: |
+          set -euo pipefail
+          files=$(ls .github/workflows/*.yml .github/workflows/*.yaml 2>/dev/null \
+            | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          echo "files=$files" >> "$GITHUB_OUTPUT"
+
+  parse:
+    name: Parse workflow integrity
+    needs: discover
+    if: needs.discover.outputs.files != '[]' && needs.discover.outputs.files != ''
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        file: ${{ fromJSON(needs.discover.outputs.files) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - id: name
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="$(basename "${{ matrix.file }}")"
+          echo "artifact=workflow-integrity-report-${base%.*}" >> "$GITHUB_OUTPUT"
+      - name: Parse + upload integrity matrix
+        uses: busbar-actions/gh-workflow-parser@main
+        with:
+          workflow: ${{ matrix.file }}
+          sha: ${{ github.sha }}
+          upload-artifact: 'true'
+          artifact-name: ${{ steps.name.outputs.artifact }}
